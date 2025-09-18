@@ -79,7 +79,7 @@
                             <input type="number" id="filament-weight" value="50" min="0" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                         </div>
                         <div>
-                            <label for="filament-price" class="block text-sm font-medium text-gray-600 mb-1">Filament Price (per kg)</label>
+                            <label for="filament-price" class="block text-sm font-medium text-gray-600 mb-1">Filament Price <span id="filament-price-unit">(per kg)</span></label>
                             <input type="number" id="filament-price" value="25" min="0" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                         </div>
                     </div>
@@ -105,7 +105,7 @@
                                 <input type="number" id="print-time-minutes" value="0" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                             <div>
-                                <label for="electricity-cost" class="block text-sm font-medium text-gray-600 mb-1">Electricity Rate (per kWh)</label>
+                                <label for="electricity-cost" class="block text-sm font-medium text-gray-600 mb-1">Electricity Rate <span id="electricity-cost-unit">(per kWh)</span></label>
                                 <input type="number" id="electricity-cost" value="0.15" min="0" step="0.01" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                         </div>
@@ -127,7 +127,7 @@
                                 <input type="number" id="labor-time-minutes" value="30" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                             <div>
-                                <label for="labor-rate" class="block text-sm font-medium text-gray-600 mb-1">Labor Rate (per hour)</label>
+                                <label for="labor-rate" class="block text-sm font-medium text-gray-600 mb-1">Labor Rate <span id="labor-rate-unit">(per hour)</span></label>
                                 <input type="number" id="labor-rate" value="15" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                         </div>
@@ -149,7 +149,7 @@
                                 <input type="number" id="post-processing-minutes" value="0" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                             <div>
-                                <label for="post-processing-rate" class="block text-sm font-medium text-gray-600 mb-1">Post-Processing Rate (per hour)</label>
+                                <label for="post-processing-rate" class="block text-sm font-medium text-gray-600 mb-1">Post-Processing Rate <span id="post-processing-rate-unit">(per hour)</span></label>
                                 <input type="number" id="post-processing-rate" value="10" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
                             </div>
                         </div>
@@ -250,6 +250,14 @@
             document.getElementById('message-modal').classList.add('hidden');
         });
 
+        // Store the original default values for conversion
+        const defaultValues = {
+            'filament-price': 25,
+            'electricity-cost': 0.15,
+            'labor-rate': 15,
+            'post-processing-rate': 10
+        };
+
         const currencyRates = {
             'USD': 1.00,
             'EUR': 0.84672,
@@ -270,7 +278,13 @@
             'PHP': '₱'
         };
 
-        const inputs = document.querySelectorAll('input[type="number"]');
+        const unitLabels = {
+            'filament-price': '(per kg)',
+            'electricity-cost': '(per kWh)',
+            'labor-rate': '(per hour)',
+            'post-processing-rate': '(per hour)'
+        };
+
         const currencySelect = document.getElementById('currency');
         const materialCostDisplay = document.getElementById('material-cost-display');
         const electricityCostDisplay = document.getElementById('electricity-cost-display');
@@ -284,9 +298,20 @@
         const historyView = document.getElementById('history-view');
         const historyList = document.getElementById('history-list');
 
+        function updateInputLabels() {
+            const selectedCurrency = currencySelect.value;
+            const symbol = currencySymbols[selectedCurrency];
+
+            for (const key in unitLabels) {
+                const labelSpan = document.getElementById(`${key}-unit`);
+                if (labelSpan) {
+                    labelSpan.textContent = `${symbol} ${unitLabels[key]}`;
+                }
+            }
+        }
+
         function calculateCost() {
             const selectedCurrency = currencySelect.value;
-            const rate = currencyRates[selectedCurrency];
             const symbol = currencySymbols[selectedCurrency];
             
             const filamentWeight = parseFloat(document.getElementById('filament-weight').value) || 0;
@@ -306,22 +331,23 @@
             const totalLaborTime = laborTimeHours + (laborTimeMinutes / 60);
             const totalPostProcessingTime = postProcessingHours + (postProcessingMinutes / 60);
             
-            const materialCostUSD = (filamentWeight / 1000) * filamentPrice;
-            const electricityCostCalcUSD = document.getElementById('include-electricity').checked ? (totalPrintTime * 0.05) * electricityCost / rate : 0;
-            const laborCostCalcUSD = document.getElementById('include-labor').checked ? totalLaborTime * laborRate / rate : 0;
-            const postProcessingCostCalcUSD = document.getElementById('include-post-processing').checked ? totalPostProcessingTime * postProcessingRate / rate : 0;
+            // The cost calculation now directly uses the input values without a fixed USD conversion step
+            const materialCost = (filamentWeight / 1000) * filamentPrice;
+            const electricityCostCalc = document.getElementById('include-electricity').checked ? (totalPrintTime * 0.05) * electricityCost : 0;
+            const laborCostCalc = document.getElementById('include-labor').checked ? totalLaborTime * laborRate : 0;
+            const postProcessingCostCalc = document.getElementById('include-post-processing').checked ? totalPostProcessingTime * postProcessingRate : 0;
             
-            const totalCostUSD = materialCostUSD + electricityCostCalcUSD + laborCostCalcUSD + postProcessingCostCalcUSD;
-            const markupPriceUSD = totalCostUSD * (markup / 100);
-            const finalPriceUSD = totalCostUSD + markupPriceUSD;
+            const totalCost = materialCost + electricityCostCalc + laborCostCalc + postProcessingCostCalc;
+            const markupPrice = totalCost * (markup / 100);
+            const finalPrice = totalCost + markupPrice;
 
-            materialCostDisplay.textContent = `${symbol} ${(materialCostUSD * rate).toFixed(2)}`;
-            electricityCostDisplay.textContent = `${symbol} ${(electricityCostCalcUSD * rate).toFixed(2)}`;
-            laborCostDisplay.textContent = `${symbol} ${(laborCostCalcUSD * rate).toFixed(2)}`;
-            postProcessingCostDisplay.textContent = `${symbol} ${(postProcessingCostCalcUSD * rate).toFixed(2)}`;
-            totalCostDisplay.textContent = `${symbol} ${(totalCostUSD * rate).toFixed(2)}`;
-            markupPriceDisplay.textContent = `${symbol} ${(markupPriceUSD * rate).toFixed(2)}`;
-            finalPriceDisplay.textContent = `${symbol} ${(finalPriceUSD * rate).toFixed(2)}`;
+            materialCostDisplay.textContent = `${symbol} ${materialCost.toFixed(2)}`;
+            electricityCostDisplay.textContent = `${symbol} ${electricityCostCalc.toFixed(2)}`;
+            laborCostDisplay.textContent = `${symbol} ${laborCostCalc.toFixed(2)}`;
+            postProcessingCostDisplay.textContent = `${symbol} ${postProcessingCostCalc.toFixed(2)}`;
+            totalCostDisplay.textContent = `${symbol} ${totalCost.toFixed(2)}`;
+            markupPriceDisplay.textContent = `${symbol} ${markupPrice.toFixed(2)}`;
+            finalPriceDisplay.textContent = `${symbol} ${finalPrice.toFixed(2)}`;
         }
         
         function getHistory() {
@@ -438,15 +464,41 @@
             calculatorView.classList.remove('hidden');
         }
 
-        currencySelect.addEventListener('change', calculateCost);
+        currencySelect.addEventListener('change', () => {
+            const oldCurrency = currencySelect.dataset.lastValue || 'USD';
+            const newCurrency = currencySelect.value;
+            const oldRate = currencyRates[oldCurrency];
+            const newRate = currencyRates[newCurrency];
+            
+            // Convert existing input values
+            const inputsToConvert = ['filament-price', 'electricity-cost', 'labor-rate', 'post-processing-rate'];
+            inputsToConvert.forEach(id => {
+                const input = document.getElementById(id);
+                const currentValue = parseFloat(input.value) || 0;
+                const convertedValue = (currentValue / oldRate) * newRate;
+                input.value = convertedValue.toFixed(2);
+            });
+            
+            currencySelect.dataset.lastValue = newCurrency;
+            updateInputLabels();
+            calculateCost();
+        });
+        
+        window.onload = function() {
+            currencySelect.dataset.lastValue = currencySelect.value;
+            updateInputLabels();
+            calculateCost();
+        };
+
+        const inputs = document.querySelectorAll('input[type="number"]');
+        inputs.forEach(input => {
+            input.addEventListener('input', calculateCost);
+        });
+
         document.getElementById('save-history-btn').addEventListener('click', saveHistory);
         document.getElementById('view-history-btn').addEventListener('click', showHistoryView);
         document.getElementById('back-btn').addEventListener('click', showCalculatorView);
         
-        window.onload = function() {
-            calculateCost();
-        };
-
         const includeElectricityCheckbox = document.getElementById('include-electricity');
         const electricityFields = document.getElementById('electricity-fields');
         includeElectricityCheckbox.addEventListener('change', () => {
