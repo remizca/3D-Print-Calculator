@@ -9,6 +9,7 @@ import { analyzeGcodeWithAI } from './services/geminiService';
 import CalculatorView from './components/CalculatorView';
 import HistoryView from './components/HistoryView';
 import Modal from './components/Modal';
+import { Analytics } from "@vercel/analytics/react"
 
 type AnalysisStatus = 'idle' | 'parsing' | 'deep_scan' | 'failed' | 'success';
 
@@ -227,28 +228,31 @@ Final Price: ${currency.symbol} ${costs.finalPrice.toFixed(2)}`;
     return (
         <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
             <main className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 lg:p-10 w-full max-w-2xl">
-                {view === 'calculator' ? (
-                    <CalculatorView 
-                        data={data}
-                        costs={calculatedCosts}
-                        currency={selectedCurrency}
-                        analysisStatus={analysisStatus}
-                        analysisMethod={analysisMethod}
-                        onDataChange={handleDataChange}
-                        onGcodeUpload={handleGcodeUpload}
-                        onSave={handleSaveToHistory}
-                        onGeneratePdf={handleGeneratePdf}
-                        onViewHistory={() => setView('history')}
-                    />
-                ) : (
-                    <HistoryView 
-                        history={history}
-                        onBack={() => setView('calculator')}
-                        onDelete={handleDeleteFromHistory}
-                        onView={handleViewHistoryItem}
-                        onReprint={handleReprintFromHistory}
-                    />
-                )}
+                <>
+                    {view === 'calculator' ? (
+                        <CalculatorView 
+                            data={data}
+                            costs={calculatedCosts}
+                            currency={selectedCurrency}
+                            analysisStatus={analysisStatus}
+                            analysisMethod={analysisMethod}
+                            onDataChange={handleDataChange}
+                            onGcodeUpload={handleGcodeUpload}
+                            onSave={handleSaveToHistory}
+                            onGeneratePdf={handleGeneratePdf}
+                            onViewHistory={() => setView('history')}
+                        />
+                    ) : (
+                        <HistoryView 
+                            history={history}
+                            onBack={() => setView('calculator')}
+                            onDelete={handleDeleteFromHistory}
+                            onView={handleViewHistoryItem}
+                            onReprint={handleReprintFromHistory}
+                        />
+                    )}
+                    <Analytics />
+                </>
             </main>
             {modal && (
                 <Modal 
