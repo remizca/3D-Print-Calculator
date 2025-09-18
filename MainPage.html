@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Printing Cost Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- jsPDF library for generating PDF receipts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Expose Firebase and Firestore to the global scope for use in the main script
+        window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+        window.firestore = { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, setLogLevel };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e2e8f0;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 1.5rem;
+            height: 1.5rem;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
+
+    <!-- Main Container -->
+    <div id="app-container" class="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 lg:p-10 w-full max-w-2xl">
+        
+        <!-- Header Section -->
+        <div class="flex flex-col sm:flex-row items-center justify-between mb-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800 text-center sm:text-left leading-tight">3D Print Cost Calculator</h1>
+            <div class="flex items-center space-x-4 mt-4 sm:mt-0">
+                <button id="view-history-btn" class="py-2 px-4 rounded-full bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors duration-300">View History</button>
+                <select id="currency" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-300">
+                    <option value="PHP">₱ Philippine Peso (PHP)</option>
+                    <option value="USD" selected>US Dollar (USD)</option>
+                    <option value="EUR">Euro (EUR)</option>
+                    <option value="GBP">British Pound (GBP)</option>
+                    <option value="CAD">Canadian Dollar (CAD)</option>
+                    <option value="AUD">Australian Dollar (AUD)</option>
+                    <option value="JPY">Japanese Yen (JPY)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- User Information -->
+        <div class="mb-4 text-center text-sm text-gray-500">
+            User ID: <span id="user-id">Loading...</span>
+        </div>
+
+        <!-- Calculator View -->
+        <div id="calculator-view">
+            <!-- Print Details Section -->
+            <div class="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner mb-6">
+                <h2 class="text-xl font-bold text-gray-700 mb-4">Print Details</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <label for="print-name" class="block text-sm font-medium text-gray-600 mb-1">Print Name</label>
+                        <input type="text" id="print-name" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label for="customer-name" class="block text-sm font-medium text-gray-600 mb-1">Customer Name</label>
+                        <input type="text" id="customer-name" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label for="purchase-date" class="block text-sm font-medium text-gray-600 mb-1">Date</label>
+                        <input type="date" id="purchase-date" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inputs Section -->
+            <div class="space-y-6">
+                <!-- Material Cost -->
+                <div class="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner">
+                    <h2 class="text-xl font-bold text-gray-700 mb-4">Material Costs</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="filament-weight" class="block text-sm font-medium text-gray-600 mb-1">Filament Weight (g)</label>
+                            <input type="number" id="filament-weight" value="50" min="0" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                        </div>
+                        <div>
+                            <label for="filament-price" class="block text-sm font-medium text-gray-600 mb-1">Filament Price (per kg)</label>
+                            <input type="number" id="filament-price" value="25" min="0" class="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Optional Costs Section -->
+                <div class="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner space-y-4">
+                    <h2 class="text-xl font-bold text-gray-700">Optional Costs</h2>
+
+                    <!-- Electricity Cost -->
+                    <div class="flex items-center space-x-3">
+                        <input type="checkbox" id="include-electricity" checked class="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300" onchange="calculateCost()">
+                        <label for="include-electricity" class="text-gray-600 font-medium cursor-pointer">Include Electricity Cost</label>
+                    </div>
+                    <div id="electricity-fields" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="print-time-hours" class="block text-sm font-medium text-gray-600 mb-1">Print Time (hours)</label>
+                                <input type="number" id="print-time-hours" value="4" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="print-time-minutes" class="block text-sm font-medium text-gray-600 mb-1">Print Time (minutes)</label>
+                                <input type="number" id="print-time-minutes" value="0" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="electricity-cost" class="block text-sm font-medium text-gray-600 mb-1">Electricity Rate (per kWh)</label>
+                                <input type="number" id="electricity-cost" value="0.15" min="0" step="0.01" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Labor Cost -->
+                    <div class="flex items-center space-x-3 mt-4">
+                        <input type="checkbox" id="include-labor" checked class="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300" onchange="calculateCost()">
+                        <label for="include-labor" class="text-gray-600 font-medium cursor-pointer">Include Labor Cost</label>
+                    </div>
+                    <div id="labor-fields" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="labor-time-hours" class="block text-sm font-medium text-gray-600 mb-1">Labor Time (hours)</label>
+                                <input type="number" id="labor-time-hours" value="0" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="labor-time-minutes" class="block text-sm font-medium text-gray-600 mb-1">Labor Time (minutes)</label>
+                                <input type="number" id="labor-time-minutes" value="30" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="labor-rate" class="block text-sm font-medium text-gray-600 mb-1">Labor Rate (per hour)</label>
+                                <input type="number" id="labor-rate" value="15" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Post-Processing Cost -->
+                    <div class="flex items-center space-x-3 mt-4">
+                        <input type="checkbox" id="include-post-processing" checked class="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300" onchange="calculateCost()">
+                        <label for="include-post-processing" class="text-gray-600 font-medium cursor-pointer">Include Post-Processing</label>
+                    </div>
+                    <div id="post-processing-fields" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="post-processing-hours" class="block text-sm font-medium text-gray-600 mb-1">Post-Processing Time (hours)</label>
+                                <input type="number" id="post-processing-hours" value="1" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="post-processing-minutes" class="block text-sm font-medium text-gray-600 mb-1">Post-Processing Time (minutes)</label>
+                                <input type="number" id="post-processing-minutes" value="0" min="0" max="59" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                            <div>
+                                <label for="post-processing-rate" class="block text-sm font-medium text-gray-600 mb-1">Post-Processing Rate (per hour)</label>
+                                <input type="number" id="post-processing-rate" value="10" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Markup Percentage -->
+                    <div class="mt-4">
+                        <label for="markup" class="block text-sm font-medium text-gray-600 mb-1">Markup Percentage (%)</label>
+                        <input type="number" id="markup" value="200" min="0" class="w-full p-3 rounded-xl border border-gray-300 transition-all duration-300 shadow-sm" oninput="calculateCost()">
+                    </div>
+                </div>
+                
+                <!-- Results Section -->
+                <div class="p-6 bg-gray-800 text-white rounded-2xl shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">Final Cost Breakdown</h2>
+                    <div class="flex flex-col space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Material Cost:</span>
+                            <span id="material-cost-display" class="font-bold"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Electricity Cost:</span>
+                            <span id="electricity-cost-display" class="font-bold"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Labor Cost:</span>
+                            <span id="labor-cost-display" class="font-bold"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Post-Processing Cost:</span>
+                            <span id="post-processing-cost-display" class="font-bold"></span>
+                        </div>
+                        <div class="border-t border-gray-600 my-2"></div>
+                        <div class="flex justify-between items-center text-lg font-extrabold text-blue-300">
+                            <span>Total Cost (before markup):</span>
+                            <span id="total-cost-display"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Markup Price:</span>
+                            <span id="markup-price-display" class="font-bold"></span>
+                        </div>
+                    </div>
+                    <div class="border-t border-gray-600 my-4"></div>
+                    <div class="flex justify-between items-center text-2xl font-extrabold text-green-400 mt-4">
+                        <span>Final Price:</span>
+                        <span id="final-price-display"></span>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-4 mt-6">
+                        <button id="generate-receipt-btn" class="w-full py-3 px-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg">
+                            Generate PDF
+                        </button>
+                        <button id="save-receipt-btn" class="w-full py-3 px-6 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg flex items-center justify-center">
+                            <span id="save-text">Save to History</span>
+                            <div id="save-spinner" class="loading-spinner hidden ml-2"></div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History View (initially hidden) -->
+        <div id="history-view" class="hidden">
+            <button id="back-to-calculator-btn" class="py-2 px-4 rounded-full bg-gray-200 text-gray-800 font-semibold mb-6 hover:bg-gray-300 transition-colors duration-300">← Back to Calculator</button>
+            <h2 class="text-2xl font-bold text-gray-700 mb-4">Print History</h2>
+            <div id="receipts-list" class="space-y-4">
+                <p id="loading-history" class="text-center text-gray-500">Loading history...</p>
+                <p id="no-history" class="text-center text-gray-500 hidden">No saved receipts found. Click "Save to History" on the main page to get started!</p>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- Custom Modal/Dialog for messages -->
+    <div id="message-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
+            <div class="text-lg font-bold mb-2" id="modal-title"></div>
+            <p class="text-gray-700 mb-4" id="modal-message"></p>
+            <div class="flex justify-end">
+                <button id="modal-ok-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase global variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+        let authReady = false;
+
+        // Display modal message instead of alert()
+        function showMessage(title, message) {
+            const modal = document.getElementById('message-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        document.getElementById('modal-ok-btn').addEventListener('click', () => {
+            document.getElementById('message-modal').classList.add('hidden');
+        });
+
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        db = firestore.getFirestore(app);
+        auth = firebase.getAuth(app);
+        firestore.setLogLevel('debug'); // For debugging Firestore operations
+
+        // Authenticate user
+        async function authenticateUser() {
+            try {
+                if (initialAuthToken) {
+                    await firebase.signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await firebase.signInAnonymously(auth);
+                }
+            } catch (error) {
+                showMessage("Authentication Error", "Could not authenticate with Firebase. Please try reloading the page.");
+                console.error("Firebase authentication error:", error);
+            }
+        }
+        
+        // Listen for auth state changes and set up Firestore listeners
+        firebase.onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('user-id').textContent = userId;
+                authReady = true;
+                if (document.getElementById('history-view').classList.contains('hidden')) {
+                     // Initial state, no need to load history yet
+                } else {
+                    loadReceiptHistory();
+                }
+            } else {
+                userId = null;
+                authReady = true;
+                document.getElementById('user-id').textContent = "Not authenticated";
+            }
+        });
+
+        // Function to save a receipt to Firestore
+        async function saveReceipt() {
+            if (!authReady) {
+                showMessage("Saving Error", "Authentication not ready. Please wait a moment.");
+                return;
+            }
+
+            const printName = document.getElementById('print-name').value;
+            if (!printName) {
+                showMessage("Saving Error", "Please enter a Print Name before saving.");
+                return;
+            }
+
+            // Get all data to save
+            const receiptData = {
+                printName: printName,
+                customerName: document.getElementById('customer-name').value,
+                purchaseDate: document.getElementById('purchase-date').value,
+                currency: currencySelect.value,
+                materialCost: materialCostDisplay.textContent,
+                electricityCost: electricityCostDisplay.textContent,
+                laborCost: laborCostDisplay.textContent,
+                postProcessingCost: postProcessingCostDisplay.textContent,
+                totalCost: totalCostDisplay.textContent,
+                markupPrice: markupPriceDisplay.textContent,
+                finalPrice: finalPriceDisplay.textContent,
+                timestamp: new Date()
+            };
+
+            const saveBtn = document.getElementById('save-receipt-btn');
+            const saveText = document.getElementById('save-text');
+            const saveSpinner = document.getElementById('save-spinner');
+
+            saveText.textContent = 'Saving...';
+            saveSpinner.classList.remove('hidden');
+            saveBtn.disabled = true;
+
+            try {
+                // Determine the correct collection path based on security rules.
+                const collectionPath = `/artifacts/${appId}/users/${userId}/receipts`;
+                await firestore.addDoc(firestore.collection(db, collectionPath), receiptData);
+                showMessage("Success", "Receipt saved to history!");
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                showMessage("Saving Error", "Failed to save receipt. Please check the console for details.");
+            } finally {
+                saveText.textContent = 'Save to History';
+                saveSpinner.classList.add('hidden');
+                saveBtn.disabled = false;
+            }
+        }
+
+        // Function to load and display receipts from Firestore
+        function loadReceiptHistory() {
+            if (!authReady) return;
+            
+            const receiptsList = document.getElementById('receipts-list');
+            const loadingHistory = document.getElementById('loading-history');
+            const noHistory = document.getElementById('no-history');
+
+            // Hide loading message and show a placeholder if no items are present
+            receiptsList.innerHTML = '';
+            loadingHistory.classList.remove('hidden');
+            noHistory.classList.add('hidden');
+
+            const collectionPath = `/artifacts/${appId}/users/${userId}/receipts`;
+            const q = firestore.query(firestore.collection(db, collectionPath));
+            
+            // Listen for real-time updates
+            firestore.onSnapshot(q, (snapshot) => {
+                loadingHistory.classList.add('hidden');
+                if (snapshot.empty) {
+                    noHistory.classList.remove('hidden');
+                    return;
+                }
+                noHistory.classList.add('hidden');
+                
+                receiptsList.innerHTML = ''; // Clear previous list
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const receiptItem = document.createElement('div');
+                    receiptItem.className = "bg-gray-100 p-4 rounded-xl shadow flex justify-between items-center";
+                    receiptItem.innerHTML = `
+                        <div>
+                            <p class="font-bold text-gray-800">${data.printName}</p>
+                            <p class="text-sm text-gray-600">Customer: ${data.customerName || 'N/A'}</p>
+                            <p class="text-sm text-gray-600">Date: ${data.purchaseDate || 'N/A'}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold text-lg text-green-600">${data.finalPrice}</p>
+                            <button class="delete-btn text-red-500 hover:text-red-700 transition-colors text-sm" data-id="${doc.id}">Delete</button>
+                        </div>
+                    `;
+                    receiptsList.appendChild(receiptItem);
+
+                    // Add click listener to the delete button
+                    receiptItem.querySelector('.delete-btn').addEventListener('click', async (e) => {
+                        const docId = e.target.dataset.id;
+                        try {
+                            const docRef = firestore.doc(db, `${collectionPath}/${docId}`);
+                            await firestore.deleteDoc(docRef);
+                        } catch (e) {
+                            console.error("Error removing document: ", e);
+                            showMessage("Deletion Error", "Failed to delete receipt. Please try again.");
+                        }
+                    });
+                });
+            }, (error) => {
+                console.error("Error fetching documents: ", error);
+                loadingHistory.classList.add('hidden');
+                noHistory.classList.add('hidden');
+                showMessage("Connection Error", "Failed to load history. Please check your network connection.");
+            });
+        }
+
+        // --- View Switching Logic ---
+        const calculatorView = document.getElementById('calculator-view');
+        const historyView = document.getElementById('history-view');
+        const viewHistoryBtn = document.getElementById('view-history-btn');
+        const backToCalculatorBtn = document.getElementById('back-to-calculator-btn');
+
+        viewHistoryBtn.addEventListener('click', () => {
+            calculatorView.classList.add('hidden');
+            historyView.classList.remove('hidden');
+            if (authReady) {
+                loadReceiptHistory();
+            }
+        });
+        
+        backToCalculatorBtn.addEventListener('click', () => {
+            historyView.classList.add('hidden');
+            calculatorView.classList.remove('hidden');
+        });
+
+        // --- Existing Calculator Logic ---
+        // Currency conversion rates relative to USD (base currency)
+        const currencyRates = {
+            'USD': 1.00,
+            'EUR': 0.84672,
+            'GBP': 0.73461,
+            'CAD': 1.37831,
+            'AUD': 1.50643,
+            'JPY': 147.093,
+            'PHP': 57.0615
+        };
+        
+        // Currency symbols for display
+        const currencySymbols = {
+            'USD': '$',
+            'EUR': '€',
+            'GBP': '£',
+            'CAD': 'C$',
+            'AUD': 'A$',
+            'JPY': '¥',
+            'PHP': '₱'
+        };
+
+        const inputs = document.querySelectorAll('input[type="number"]');
+        const currencySelect = document.getElementById('currency');
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+
+        const materialCostDisplay = document.getElementById('material-cost-display');
+        const electricityCostDisplay = document.getElementById('electricity-cost-display');
+        const laborCostDisplay = document.getElementById('labor-cost-display');
+        const postProcessingCostDisplay = document.getElementById('post-processing-cost-display');
+        const totalCostDisplay = document.getElementById('total-cost-display');
+        const markupPriceDisplay = document.getElementById('markup-price-display');
+        const finalPriceDisplay = document.getElementById('final-price-display');
+
+        function calculateCost() {
+            const selectedCurrency = currencySelect.value;
+            const rate = currencyRates[selectedCurrency];
+            const symbol = currencySymbols[selectedCurrency];
+            
+            const filamentWeight = parseFloat(document.getElementById('filament-weight').value) || 0;
+            const filamentPrice = parseFloat(document.getElementById('filament-price').value) || 0;
+            const printTimeHours = parseFloat(document.getElementById('print-time-hours').value) || 0;
+            const printTimeMinutes = parseFloat(document.getElementById('print-time-minutes').value) || 0;
+            const electricityCost = parseFloat(document.getElementById('electricity-cost').value) || 0;
+            const laborTimeHours = parseFloat(document.getElementById('labor-time-hours').value) || 0;
+            const laborTimeMinutes = parseFloat(document.getElementById('labor-time-minutes').value) || 0;
+            const laborRate = parseFloat(document.getElementById('labor-rate').value) || 0;
+            const postProcessingHours = parseFloat(document.getElementById('post-processing-hours').value) || 0;
+            const postProcessingMinutes = parseFloat(document.getElementById('post-processing-minutes').value) || 0;
+            const postProcessingRate = parseFloat(document.getElementById('post-processing-rate').value) || 0;
+            const markup = parseFloat(document.getElementById('markup').value) || 0;
+            
+            const totalPrintTime = printTimeHours + (printTimeMinutes / 60);
+            const totalLaborTime = laborTimeHours + (laborTimeMinutes / 60);
+            const totalPostProcessingTime = postProcessingHours + (postProcessingMinutes / 60);
+            
+            const filamentPriceUSD = filamentPrice / rate;
+            const electricityCostUSD = electricityCost / rate;
+            const laborRateUSD = laborRate / rate;
+            const postProcessingRateUSD = postProcessingRate / rate;
+
+            const materialCostUSD = (filamentWeight / 1000) * filamentPriceUSD;
+            const electricityCostCalcUSD = document.getElementById('include-electricity').checked ? (totalPrintTime * 0.05) * electricityCostUSD : 0;
+            const laborCostCalcUSD = document.getElementById('include-labor').checked ? totalLaborTime * laborRateUSD : 0;
+            const postProcessingCostCalcUSD = document.getElementById('include-post-processing').checked ? totalPostProcessingTime * postProcessingRateUSD : 0;
+            
+            const totalCostUSD = materialCostUSD + electricityCostCalcUSD + laborCostCalcUSD + postProcessingCostCalcUSD;
+            const markupPriceUSD = totalCostUSD * (markup / 100);
+            const finalPriceUSD = totalCostUSD + markupPriceUSD;
+
+            materialCostDisplay.textContent = `${symbol} ${(materialCostUSD * rate).toFixed(2)}`;
+            electricityCostDisplay.textContent = `${symbol} ${(electricityCostCalcUSD * rate).toFixed(2)}`;
+            laborCostDisplay.textContent = `${symbol} ${(laborCostCalcUSD * rate).toFixed(2)}`;
+            postProcessingCostDisplay.textContent = `${symbol} ${(postProcessingCostCalcUSD * rate).toFixed(2)}`;
+            totalCostDisplay.textContent = `${symbol} ${(totalCostUSD * rate).toFixed(2)}`;
+            markupPriceDisplay.textContent = `${symbol} ${(markupPriceUSD * rate).toFixed(2)}`;
+            finalPriceDisplay.textContent = `${symbol} ${(finalPriceUSD * rate).toFixed(2)}`;
+        }
+        
+        currencySelect.addEventListener('change', calculateCost);
+        
+        window.onload = function() {
+            calculateCost();
+            authenticateUser();
+        };
+
+        const includeElectricityCheckbox = document.getElementById('include-electricity');
+        const electricityFields = document.getElementById('electricity-fields');
+        includeElectricityCheckbox.addEventListener('change', () => {
+            electricityFields.style.display = includeElectricityCheckbox.checked ? 'grid' : 'none';
+            calculateCost();
+        });
+        
+        const includeLaborCheckbox = document.getElementById('include-labor');
+        const laborFields = document.getElementById('labor-fields');
+        includeLaborCheckbox.addEventListener('change', () => {
+            laborFields.style.display = includeLaborCheckbox.checked ? 'grid' : 'none';
+            calculateCost();
+        });
+
+        const includePostProcessingCheckbox = document.getElementById('include-post-processing');
+        const postProcessingFields = document.getElementById('post-processing-fields');
+        includePostProcessingCheckbox.addEventListener('change', () => {
+            postProcessingFields.style.display = includePostProcessingCheckbox.checked ? 'grid' : 'none';
+            calculateCost();
+        });
+        
+        document.getElementById('generate-receipt-btn').addEventListener('click', () => {
+            const printName = document.getElementById('print-name').value;
+            const customerName = document.getElementById('customer-name').value;
+            const purchaseDate = document.getElementById('purchase-date').value;
+
+            const materialCost = materialCostDisplay.textContent;
+            const electricityCost = electricityCostDisplay.textContent;
+            const laborCost = laborCostDisplay.textContent;
+            const postProcessingCost = postProcessingCostDisplay.textContent;
+            const totalCost = totalCostDisplay.textContent;
+            const markupPrice = markupPriceDisplay.textContent;
+            const finalPrice = finalPriceDisplay.textContent;
+
+            if (!printName) {
+                showMessage("PDF Generation Error", "Please enter a Print Name to generate a receipt.");
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(22);
+            doc.text("3D Print Receipt", 105, 20, null, null, "center");
+
+            doc.setLineWidth(0.5);
+            doc.line(20, 25, 190, 25);
+            
+            doc.setFontSize(14);
+            let y = 35;
+            
+            doc.setFont(undefined, 'bold');
+            doc.text("Print Details", 20, y);
+            doc.setFont(undefined, 'normal');
+            y += 10;
+            doc.text(`Print Name: ${printName}`, 20, y);
+            y += 10;
+            doc.text(`Customer Name: ${customerName}`, 20, y);
+            y += 10;
+            doc.text(`Date: ${purchaseDate}`, 20, y);
+
+            y += 20;
+            doc.setFont(undefined, 'bold');
+            doc.text("Cost Breakdown", 20, y);
+            doc.setFont(undefined, 'normal');
+            y += 10;
+            doc.text(`Material Cost: ${materialCost}`, 20, y);
+            y += 10;
+            doc.text(`Electricity Cost: ${electricityCost}`, 20, y);
+            y += 10;
+            doc.text(`Labor Cost: ${laborCost}`, 20, y);
+            y += 10;
+            doc.text(`Post-Processing Cost: ${postProcessingCost}`, 20, y);
+            
+            y += 15;
+            doc.setLineWidth(0.3);
+            doc.line(20, y, 190, y);
+            y += 10;
+
+            doc.setFontSize(16);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Total Cost (before markup): ${totalCost}`, 20, y);
+            y += 10;
+            doc.setFont(undefined, 'normal');
+            doc.text(`Markup Price: ${markupPrice}`, 20, y);
+            
+            y += 20;
+            doc.setLineWidth(0.5);
+            doc.line(20, y, 190, y);
+            y += 10;
+
+            doc.setFontSize(20);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Final Price: ${finalPrice}`, 20, y);
+            
+            doc.save(`3D_Print_Receipt_${printName.replace(/\s/g, '_')}.pdf`);
+        });
+
+        // Event listener for the new "Save to History" button
+        document.getElementById('save-receipt-btn').addEventListener('click', saveReceipt);
+    </script>
+
+</body>
+</html>
