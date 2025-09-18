@@ -4,11 +4,13 @@ export interface CalculationData {
     customerName: string;
     purchaseDate: string;
     currency: string;
+    filamentDiameter: number;
     filamentWeight: number;
     filamentPrice: number;
     includeElectricity: boolean;
     printTimeHours: number;
     printTimeMinutes: number;
+    printTimeSeconds: number;
     electricityCost: number;
     includeLabor: boolean;
     laborTimeHours: number;
@@ -19,6 +21,12 @@ export interface CalculationData {
     postProcessingMinutes: number;
     postProcessingRate: number;
     markup: number;
+}
+
+export interface GcodeInfo {
+    filamentWeightG: number | null;
+    printTimeSeconds: number | null;
+    filamentLengthMm: number | null;
 }
 
 export interface CalculatedCosts {

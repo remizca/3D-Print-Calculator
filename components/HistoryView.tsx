@@ -7,9 +7,10 @@ interface HistoryViewProps {
     onBack: () => void;
     onDelete: (id: string) => void;
     onView: (item: HistoryEntry) => void;
+    onReprint: (item: HistoryEntry) => void;
 }
 
-const HistoryView: React.FC<HistoryViewProps> = ({ history, onBack, onDelete, onView }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ history, onBack, onDelete, onView, onReprint }) => {
     return (
         <div>
             <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">History of Prints</h2>
@@ -28,6 +29,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ history, onBack, onDelete, on
                                 {item.currency.symbol} {item.costs.finalPrice.toFixed(2)}
                             </div>
                             <div className="flex space-x-2 mt-2 sm:mt-0">
+                                <button onClick={() => onReprint(item)} className="bg-green-500 text-white rounded-full p-2 hover:bg-green-600 transition-colors" title="Reprint">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm10 8a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 111.885-.666A5.002 5.002 0 0014.001 13H11a1 1 0 01-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
                                 <button onClick={() => onView(item)} className="bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 transition-colors" title="View Details">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                         <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />

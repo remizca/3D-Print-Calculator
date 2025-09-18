@@ -3,17 +3,22 @@ import React from 'react';
 import { CalculationData, CalculatedCosts, Currency } from '../types';
 import { CURRENCIES } from '../constants';
 
+type AnalysisStatus = 'idle' | 'parsing' | 'deep_scan' | 'failed' | 'success';
+
 interface CalculatorViewProps {
     data: CalculationData;
     costs: CalculatedCosts;
     currency: Currency;
+    analysisStatus: AnalysisStatus;
+    analysisMethod: 'local' | 'ai' | null;
     onDataChange: <K extends keyof CalculationData>(key: K, value: CalculationData[K]) => void;
+    onGcodeUpload: (file: File) => void;
     onSave: () => void;
     onGeneratePdf: () => void;
     onViewHistory: () => void;
 }
 
-const InputField: React.FC<{id: string, label: string, type?: string, value: string | number, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, min?: number, max?: number, step?: number, className?: string}> = 
+const InputField: React.FC<{id: string, label: string, type?: string, value: string | number, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, min?: number | string, max?: number | string, step?: number | string, className?: string}> = 
     ({ id, label, type = "text", value, onChange, min, max, step, className }) => (
     <div className={className}>
         <label htmlFor={id} className="block text-sm font-medium text-gray-600 mb-1">{label}</label>
@@ -31,65 +36,85 @@ const InputField: React.FC<{id: string, label: string, type?: string, value: str
 );
 
 const OptionalCostSection: React.FC<{
-    title: string,
-    includeId: keyof CalculationData,
-    isIncluded: boolean,
-    hoursId: keyof CalculationData,
-    hoursValue: number,
-    minutesId: keyof CalculationData,
-    minutesValue: number,
-    rateId: keyof CalculationData,
-    rateValue: number,
-    onDataChange: <K extends keyof CalculationData>(key: K, value: CalculationData[K]) => void,
-    currencySymbol: string
-}> = ({ title, includeId, isIncluded, hoursId, hoursValue, minutesId, minutesValue, rateId, rateValue, onDataChange, currencySymbol }) => (
-    <>
-        <div className="flex items-center space-x-3 mt-4">
-            <input 
-                type="checkbox" 
-                id={String(includeId)}
-                checked={isIncluded}
-                onChange={(e) => onDataChange(includeId, e.target.checked)}
-                className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
-            />
-            <label htmlFor={String(includeId)} className="text-gray-600 font-medium cursor-pointer">{title}</label>
-        </div>
-        {isIncluded && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
-                 <InputField
-                    id={String(hoursId)}
-                    label="Time (hours)"
-                    type="number"
-                    value={hoursValue}
-                    min={0}
-                    onChange={(e) => onDataChange(hoursId, e.target.valueAsNumber || 0)}
+    title: string;
+    includeId: keyof CalculationData;
+    isIncluded: boolean;
+    hoursId?: keyof CalculationData;
+    hoursValue?: number;
+    minutesId?: keyof CalculationData;
+    minutesValue?: number;
+    rateId: keyof CalculationData;
+    rateValue: number;
+    onDataChange: <K extends keyof CalculationData>(key: K, value: CalculationData[K]) => void;
+    currencySymbol: string;
+    rateUnit: string;
+}> = ({ title, includeId, isIncluded, hoursId, hoursValue, minutesId, minutesValue, rateId, rateValue, onDataChange, currencySymbol, rateUnit }) => {
+    const hasTimeFields = hoursId && minutesId;
+    const gridColsClass = hasTimeFields ? 'sm:grid-cols-3' : 'sm:grid-cols-1';
+
+    return (
+        <>
+            <div className="flex items-center space-x-3 mt-4">
+                <input 
+                    type="checkbox" 
+                    id={String(includeId)}
+                    checked={isIncluded}
+                    onChange={(e) => onDataChange(includeId, e.target.checked)}
+                    className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
                 />
-                 <InputField
-                    id={String(minutesId)}
-                    label="Time (minutes)"
-                    type="number"
-                    value={minutesValue}
-                    min={0} max={59}
-                    onChange={(e) => onDataChange(minutesId, e.target.valueAsNumber || 0)}
-                />
-                 <div>
-                    <label htmlFor={String(rateId)} className="block text-sm font-medium text-gray-600 mb-1">Rate <span>{currencySymbol} (per hour)</span></label>
-                    <input 
-                        type="number" 
-                        id={String(rateId)} 
-                        value={rateValue}
-                        min={0}
-                        onChange={(e) => onDataChange(rateId, e.target.valueAsNumber || 0)}
-                        className="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm"
-                    />
-                </div>
+                <label htmlFor={String(includeId)} className="text-gray-600 font-medium cursor-pointer">{title}</label>
             </div>
-        )}
-    </>
-);
+            {isIncluded && (
+                <div className={`grid grid-cols-1 ${gridColsClass} gap-4 mt-2`}>
+                    {hasTimeFields && (
+                        <>
+                            <InputField
+                                id={String(hoursId)}
+                                label="Time (hours)"
+                                type="number"
+                                value={hoursValue || 0}
+                                min={0}
+                                onChange={(e) => onDataChange(hoursId!, e.target.valueAsNumber || 0)}
+                            />
+                            <InputField
+                                id={String(minutesId)}
+                                label="Time (minutes)"
+                                type="number"
+                                value={minutesValue || 0}
+                                min={0} max={59}
+                                onChange={(e) => onDataChange(minutesId!, e.target.valueAsNumber || 0)}
+                            />
+                        </>
+                    )}
+                    <div>
+                        <label htmlFor={String(rateId)} className="block text-sm font-medium text-gray-600 mb-1">Rate <span>{currencySymbol} ({rateUnit})</span></label>
+                        <input 
+                            type="number" 
+                            id={String(rateId)} 
+                            value={rateValue}
+                            min={0}
+                            step="0.01"
+                            onChange={(e) => onDataChange(rateId, e.target.valueAsNumber || 0)}
+                            className="w-full p-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all duration-300 shadow-sm"
+                        />
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
 
 
-const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, onDataChange, onSave, onGeneratePdf, onViewHistory }) => {
+const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, analysisStatus, analysisMethod, onDataChange, onGcodeUpload, onSave, onGeneratePdf, onViewHistory }) => {
+    
+    const isParsing = analysisStatus === 'parsing' || analysisStatus === 'deep_scan';
+
+    const getUploaderButtonText = () => {
+        if (analysisStatus === 'parsing') return 'Analyzing...';
+        if (analysisStatus === 'deep_scan') return 'Performing Deep Scan...';
+        return 'Upload G-code';
+    }
+
     return (
         <div>
             {/* Header */}
@@ -106,6 +131,47 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, 
                 </div>
             </div>
 
+             {/* G-code Uploader */}
+            <div className="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner mb-6">
+                <h2 className="text-xl font-bold text-gray-700 mb-4">Analyze G-code File</h2>
+                <p className="text-sm text-gray-500 mb-4">
+                    Upload a <code>.gcode</code> file to automatically fill Print Name, Print Time, and Filament Weight. Includes AI-powered fallback for tricky files.
+                </p>
+                <div className="flex items-center space-x-4">
+                    <label htmlFor="gcode-upload" className={`w-full cursor-pointer text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg text-center ${isParsing ? 'bg-gray-500' : 'bg-blue-500 hover:bg-blue-600'}`}>
+                        {getUploaderButtonText()}
+                    </label>
+                    <input
+                        id="gcode-upload"
+                        type="file"
+                        accept=".gcode"
+                        className="hidden"
+                        disabled={isParsing}
+                        onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                                onGcodeUpload(e.target.files[0]);
+                            }
+                            e.target.value = ''; // Allow re-uploading the same file
+                        }}
+                    />
+                </div>
+                {isParsing && (
+                    <div className="mt-4 text-center text-blue-600 font-semibold animate-pulse">
+                         {analysisStatus === 'deep_scan' ? 'This may take a moment...' : 'Please wait...'}
+                    </div>
+                )}
+                 {analysisStatus === 'success' && (
+                    <div className="mt-3 text-center text-sm text-gray-600">
+                        Analysis complete.
+                        {analysisMethod && (
+                            <span className={`ml-2 px-2 py-1 text-xs font-bold rounded-full ${analysisMethod === 'ai' ? 'bg-purple-200 text-purple-800' : 'bg-green-200 text-green-800'}`}>
+                                {analysisMethod === 'ai' ? 'Analyzed with AI' : 'Analyzed Locally'}
+                            </span>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {/* Print Details */}
             <div className="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner mb-6">
                 <h2 className="text-xl font-bold text-gray-700 mb-4">Print Details</h2>
@@ -118,13 +184,50 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, 
 
             {/* Inputs Section */}
             <div className="space-y-6">
-                 {/* Material Cost */}
+                 {/* Print Time & Material Cost */}
                  <div className="p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Material Costs</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <h2 className="text-xl font-bold text-gray-700 mb-4">Print Time & Material Costs</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                        <InputField
+                            id="print-time-hours"
+                            label="Time (hours)"
+                            type="number"
+                            value={data.printTimeHours}
+                            min={0}
+                            onChange={(e) => onDataChange('printTimeHours', e.target.valueAsNumber || 0)}
+                        />
+                         <InputField
+                            id="print-time-minutes"
+                            label="Time (minutes)"
+                            type="number"
+                            value={data.printTimeMinutes}
+                            min={0} max={59}
+                            onChange={(e) => onDataChange('printTimeMinutes', e.target.valueAsNumber || 0)}
+                        />
+                        <InputField
+                            id="print-time-seconds"
+                            label="Time (seconds)"
+                            type="number"
+                            value={data.printTimeSeconds}
+                            min={0}
+                            max={59}
+                            onChange={(e) => onDataChange('printTimeSeconds', e.target.valueAsNumber || 0)}
+                        />
+                    </div>
+                    <div className="border-t border-gray-200 my-4"></div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <InputField
+                            id="filament-diameter"
+                            label="Diameter (mm)"
+                            type="number"
+                            value={data.filamentDiameter}
+                            min={0}
+                            step="0.01"
+                            onChange={(e) => onDataChange('filamentDiameter', e.target.valueAsNumber || 0)}
+                        />
                         <InputField
                             id="filament-weight"
-                            label="Filament Weight (g)"
+                            label="Weight (g)"
                             type="number"
                             value={data.filamentWeight}
                             min={0}
@@ -153,14 +256,11 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, 
                         title="Include Electricity Cost"
                         includeId="includeElectricity"
                         isIncluded={data.includeElectricity}
-                        hoursId="printTimeHours"
-                        hoursValue={data.printTimeHours}
-                        minutesId="printTimeMinutes"
-                        minutesValue={data.printTimeMinutes}
                         rateId="electricityCost"
                         rateValue={data.electricityCost}
                         onDataChange={onDataChange}
-                        currencySymbol={currency.symbol.replace('(per kWh)', '')}
+                        currencySymbol={currency.symbol}
+                        rateUnit="per kWh"
                     />
 
                     <OptionalCostSection
@@ -175,6 +275,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, 
                         rateValue={data.laborRate}
                         onDataChange={onDataChange}
                         currencySymbol={currency.symbol}
+                        rateUnit="per hour"
                     />
 
                      <OptionalCostSection
@@ -189,6 +290,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({ data, costs, currency, 
                         rateValue={data.postProcessingRate}
                         onDataChange={onDataChange}
                         currencySymbol={currency.symbol}
+                        rateUnit="per hour"
                     />
                      
                      <div className="mt-4">

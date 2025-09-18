@@ -1,18 +1,25 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { CalculationData, HistoryEntry, Currency } from './types';
-import { CURRENCIES, DEFAULT_VALUES } from './constants';
+import { CalculationData, HistoryEntry, Currency, GcodeInfo } from './types';
+import { CURRENCIES, DEFAULT_VALUES, FILAMENT_DENSITY_G_CM3 } from './constants';
 import { getHistory, saveHistory, deleteHistoryItem as removeHistoryItem } from './services/historyService';
 import { generatePdf } from './services/pdfService';
+import { parseGcode } from './services/gcodeService';
+import { analyzeGcodeWithAI } from './services/geminiService';
 import CalculatorView from './components/CalculatorView';
 import HistoryView from './components/HistoryView';
 import Modal from './components/Modal';
+
+type AnalysisStatus = 'idle' | 'parsing' | 'deep_scan' | 'failed' | 'success';
 
 const App: React.FC = () => {
     const [view, setView] = useState<'calculator' | 'history'>('calculator');
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [modal, setModal] = useState<{ title: string; message: string } | null>(null);
     const [data, setData] = useState<CalculationData>(DEFAULT_VALUES);
+    const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
+    const [analysisMethod, setAnalysisMethod] = useState<'local' | 'ai' | null>(null);
+
 
     useEffect(() => {
         setHistory(getHistory());
@@ -25,8 +32,10 @@ const App: React.FC = () => {
     const calculatedCosts = useMemo(() => {
         const materialCost = (data.filamentWeight / 1000) * data.filamentPrice;
         
-        const totalPrintTime = data.printTimeHours + (data.printTimeMinutes / 60);
-        const electricityCost = data.includeElectricity ? (totalPrintTime * 0.05) * data.electricityCost : 0; // Assuming 50W printer
+        const totalSeconds = (data.printTimeHours * 3600) + (data.printTimeMinutes * 60) + data.printTimeSeconds;
+        const totalPrintTimeInHours = totalSeconds / 3600;
+
+        const electricityCost = data.includeElectricity ? (totalPrintTimeInHours * data.electricityCost) : 0; 
 
         const totalLaborTime = data.laborTimeHours + (data.laborTimeMinutes / 60);
         const laborCost = data.includeLabor ? totalLaborTime * data.laborRate : 0;
@@ -71,6 +80,87 @@ const App: React.FC = () => {
         }
     }, [data.currency]);
 
+    const updateStateFromParsedData = (parsedData: GcodeInfo, file: File) => {
+        const { filamentWeightG, printTimeSeconds, filamentLengthMm } = parsedData;
+
+        let finalWeightG: number;
+        if (filamentWeightG !== null && filamentWeightG > 0) {
+            finalWeightG = filamentWeightG;
+        } else if (filamentLengthMm && filamentLengthMm > 0) {
+            const radiusMm = data.filamentDiameter / 2;
+            const volumeMm3 = Math.PI * Math.pow(radiusMm, 2) * filamentLengthMm;
+            const volumeCm3 = volumeMm3 / 1000;
+            finalWeightG = volumeCm3 * FILAMENT_DENSITY_G_CM3;
+             console.warn("Used fallback weight calculation from filament length.");
+        } else {
+            // No valid weight or length, leave the current weight unchanged
+            finalWeightG = data.filamentWeight;
+        }
+        
+        const totalSeconds = printTimeSeconds || 0;
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        setData(prev => ({
+            ...prev,
+            printName: file.name.replace(/\.gcode$/i, ''),
+            filamentWeight: parseFloat(finalWeightG.toFixed(2)),
+            printTimeHours: hours,
+            printTimeMinutes: minutes,
+            printTimeSeconds: seconds,
+        }));
+    };
+
+    const handleGcodeUpload = useCallback(async (file: File) => {
+        if (!file.name.toLowerCase().endsWith('.gcode')) {
+            setModal({ title: "Invalid File", message: "Please upload a valid .gcode file." });
+            return;
+        }
+
+        setAnalysisStatus('parsing');
+        setAnalysisMethod(null);
+
+        try {
+            const gcodeText = await file.text();
+            let parsedData = parseGcode(gcodeText);
+
+            // --- STAGE 2: AI DEEP SCAN FALLBACK ---
+            // If local parsing fails to get key data, use Gemini.
+            if (!parsedData.printTimeSeconds || !parsedData.filamentWeightG) {
+                console.log("Local parse insufficient. Triggering AI Deep Scan.");
+                setAnalysisStatus('deep_scan');
+                try {
+                    const aiResult = await analyzeGcodeWithAI(gcodeText);
+                    parsedData = { ...parsedData, ...aiResult }; // Merge AI results, giving them priority
+                    setAnalysisMethod('ai');
+                } catch(aiError) {
+                    console.error("AI analysis failed:", aiError);
+                    setModal({ title: "AI Analysis Failed", message: "The AI-powered deep scan could not analyze the file. Please check the browser console for more details." });
+                    setAnalysisStatus('failed');
+                    return;
+                }
+            } else {
+                 setAnalysisMethod('local');
+            }
+
+            if (!parsedData.printTimeSeconds && !parsedData.filamentWeightG && !parsedData.filamentLengthMm) {
+                 setModal({ title: "Analysis Failed", message: "Could not extract any meaningful data from the G-code file, even with AI analysis." });
+                 setAnalysisStatus('failed');
+                 return;
+            }
+
+            updateStateFromParsedData(parsedData, file);
+            setModal({ title: "Success!", message: "G-code analyzed and fields have been updated." });
+            setAnalysisStatus('success');
+
+        } catch (error) {
+            console.error("Failed to parse G-code:", error);
+            setModal({ title: "Error", message: "An unexpected error occurred while processing the G-code file." });
+            setAnalysisStatus('failed');
+        }
+    }, [data.filamentDiameter, data.filamentWeight]);
+
 
     const handleSaveToHistory = () => {
         if (!data.printName.trim()) {
@@ -114,6 +204,12 @@ Final Price: ${currency.symbol} ${costs.finalPrice.toFixed(2)}`;
         setModal({ title: "Saved Print Details", message: formattedMessage });
     };
 
+    const handleReprintFromHistory = (item: HistoryEntry) => {
+        setData(item.data);
+        setView('calculator');
+        setModal({ title: "Data Loaded", message: `The print data for "${item.data.printName}" has been loaded into the calculator.` });
+    };
+
     const handleGeneratePdf = () => {
          if (!data.printName.trim()) {
             setModal({ title: "PDF Generation Error", message: "Please enter a Print Name to generate a receipt." });
@@ -136,7 +232,10 @@ Final Price: ${currency.symbol} ${costs.finalPrice.toFixed(2)}`;
                         data={data}
                         costs={calculatedCosts}
                         currency={selectedCurrency}
+                        analysisStatus={analysisStatus}
+                        analysisMethod={analysisMethod}
                         onDataChange={handleDataChange}
+                        onGcodeUpload={handleGcodeUpload}
                         onSave={handleSaveToHistory}
                         onGeneratePdf={handleGeneratePdf}
                         onViewHistory={() => setView('history')}
@@ -147,6 +246,7 @@ Final Price: ${currency.symbol} ${costs.finalPrice.toFixed(2)}`;
                         onBack={() => setView('calculator')}
                         onDelete={handleDeleteFromHistory}
                         onView={handleViewHistoryItem}
+                        onReprint={handleReprintFromHistory}
                     />
                 )}
             </main>

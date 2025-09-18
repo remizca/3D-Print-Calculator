@@ -11,16 +11,20 @@ export const CURRENCIES: Currencies = {
     JPY: { name: 'Japanese Yen', symbol: '¥', rate: 157.30 }
 };
 
+export const FILAMENT_DENSITY_G_CM3 = 1.24; // Average density for PLA/PETG
+
 export const DEFAULT_VALUES: CalculationData = {
     printName: '',
     customerName: '',
     purchaseDate: '',
     currency: 'USD',
+    filamentDiameter: 1.75,
     filamentWeight: 50,
     filamentPrice: 25,
     includeElectricity: true,
     printTimeHours: 4,
     printTimeMinutes: 0,
+    printTimeSeconds: 0,
     electricityCost: 0.15,
     includeLabor: true,
     laborTimeHours: 0,
