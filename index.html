@@ -7,17 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- jsPDF library for generating PDF receipts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
-        // Expose Firebase and Firestore to the global scope for use in the main script
-        window.firebase = { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken };
-        window.firestore = { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel };
-    </script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -46,7 +35,6 @@
         <div class="flex flex-col sm:flex-row items-center justify-between mb-8">
             <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800 text-center sm:text-left leading-tight">3D Print Cost Calculator</h1>
             <div class="flex items-center space-x-4 mt-4 sm:mt-0">
-                <button id="view-history-btn" class="py-2 px-4 rounded-full bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors duration-300">View History</button>
                 <select id="currency" class="bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-300">
                     <option value="PHP">₱ Philippine Peso (PHP)</option>
                     <option value="USD" selected>US Dollar (USD)</option>
@@ -57,11 +45,6 @@
                     <option value="JPY">Japanese Yen (JPY)</option>
                 </select>
             </div>
-        </div>
-
-        <!-- User Information -->
-        <div class="mb-4 text-center text-sm text-gray-500">
-            User ID: <span id="user-id">Loading...</span>
         </div>
 
         <!-- Calculator View -->
@@ -218,25 +201,29 @@
                         <button id="generate-receipt-btn" class="w-full py-3 px-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg">
                             Generate PDF
                         </button>
-                        <button id="save-receipt-btn" class="w-full py-3 px-6 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg flex items-center justify-center">
-                            <span id="save-text">Save to History</span>
-                            <div id="save-spinner" class="loading-spinner hidden ml-2"></div>
+                        <button id="save-history-btn" class="w-full py-3 px-6 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg">
+                            Save to History
+                        </button>
+                        <button id="view-history-btn" class="w-full py-3 px-6 bg-purple-500 hover:bg-purple-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg">
+                            View History
                         </button>
                     </div>
                 </div>
             </div>
         </div>
-
-        <!-- History View (initially hidden) -->
+        
+        <!-- History View -->
         <div id="history-view" class="hidden">
-            <button id="back-to-calculator-btn" class="py-2 px-4 rounded-full bg-gray-200 text-gray-800 font-semibold mb-6 hover:bg-gray-300 transition-colors duration-300">← Back to Calculator</button>
-            <h2 class="text-2xl font-bold text-gray-700 mb-4">Print History</h2>
-            <div id="receipts-list" class="space-y-4">
-                <p id="loading-history" class="text-center text-gray-500">Loading history...</p>
-                <p id="no-history" class="text-center text-gray-500 hidden">No saved receipts found. Click "Save to History" on the main page to get started!</p>
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">History of Prints</h2>
+            <div id="history-list" class="space-y-4">
+                <!-- History items will be dynamically inserted here -->
+            </div>
+            <div class="flex justify-center mt-8">
+                <button id="back-btn" class="py-3 px-8 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-xl transition-colors duration-300 shadow-lg">
+                    Back to Calculator
+                </button>
             </div>
         </div>
-
     </div>
     
     <!-- Custom Modal/Dialog for messages -->
@@ -250,10 +237,7 @@
         </div>
     </div>
 
-    <script type="module">
-        let db, auth, userId;
-        let authReady = false;
-
+    <script>
         // Display modal message instead of alert()
         function showMessage(title, message) {
             const modal = document.getElementById('message-modal');
@@ -266,175 +250,6 @@
             document.getElementById('message-modal').classList.add('hidden');
         });
 
-        // Initialize Firebase
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const app = firebase.initializeApp(firebaseConfig);
-        db = firestore.getFirestore(app);
-        auth = firebase.getAuth(app);
-        firestore.setLogLevel('debug'); // For debugging Firestore operations
-        
-        // Authenticate user
-        async function authenticateUser() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined') {
-                    await firebase.signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await firebase.signInAnonymously(auth);
-                }
-            } catch (error) {
-                showMessage("Authentication Error", "Could not authenticate with Firebase. Please check the console for details.");
-                console.error("Firebase authentication error:", error);
-            }
-        }
-        
-        // Listen for auth state changes and set up Firestore listeners
-        firebase.onAuthStateChanged(auth, (user) => {
-            if (user) {
-                userId = user.uid;
-                document.getElementById('user-id').textContent = userId;
-                authReady = true;
-                if (!document.getElementById('history-view').classList.contains('hidden')) {
-                     loadReceiptHistory();
-                }
-            } else {
-                userId = null;
-                authReady = true;
-                document.getElementById('user-id').textContent = "Not authenticated";
-            }
-        });
-
-        // Function to save a receipt to Firestore
-        async function saveReceipt() {
-            if (!authReady) {
-                showMessage("Saving Error", "Authentication not ready. Please wait a moment.");
-                return;
-            }
-
-            const printName = document.getElementById('print-name').value;
-            if (!printName) {
-                showMessage("Saving Error", "Please enter a Print Name before saving.");
-                return;
-            }
-
-            // Get all data to save
-            const receiptData = {
-                printName: printName,
-                customerName: document.getElementById('customer-name').value,
-                purchaseDate: document.getElementById('purchase-date').value,
-                currency: currencySelect.value,
-                materialCost: materialCostDisplay.textContent,
-                electricityCost: electricityCostDisplay.textContent,
-                laborCost: laborCostDisplay.textContent,
-                postProcessingCost: postProcessingCostDisplay.textContent,
-                totalCost: totalCostDisplay.textContent,
-                markupPrice: markupPriceDisplay.textContent,
-                finalPrice: finalPriceDisplay.textContent,
-                timestamp: new Date()
-            };
-
-            const saveBtn = document.getElementById('save-receipt-btn');
-            const saveText = document.getElementById('save-text');
-            const saveSpinner = document.getElementById('save-spinner');
-
-            saveText.textContent = 'Saving...';
-            saveSpinner.classList.remove('hidden');
-            saveBtn.disabled = true;
-
-            try {
-                const collectionPath = `/artifacts/${typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}/public/data/receipts`;
-                await firestore.addDoc(firestore.collection(db, collectionPath), receiptData);
-                showMessage("Success", "Receipt saved to history!");
-            } catch (e) {
-                console.error("Error adding document: ", e);
-                showMessage("Saving Error", "Failed to save receipt. Please check the console for details.");
-            } finally {
-                saveText.textContent = 'Save to History';
-                saveSpinner.classList.add('hidden');
-                saveBtn.disabled = false;
-            }
-        }
-
-        // Function to load and display receipts from Firestore
-        function loadReceiptHistory() {
-            if (!authReady) return;
-            
-            const receiptsList = document.getElementById('receipts-list');
-            const loadingHistory = document.getElementById('loading-history');
-            const noHistory = document.getElementById('no-history');
-
-            receiptsList.innerHTML = '';
-            loadingHistory.classList.remove('hidden');
-            noHistory.classList.add('hidden');
-
-            const collectionPath = `/artifacts/${typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}/public/data/receipts`;
-            const q = firestore.query(firestore.collection(db, collectionPath));
-            
-            firestore.onSnapshot(q, (snapshot) => {
-                loadingHistory.classList.add('hidden');
-                if (snapshot.empty) {
-                    noHistory.classList.remove('hidden');
-                    return;
-                }
-                noHistory.classList.add('hidden');
-                
-                receiptsList.innerHTML = ''; 
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    const receiptItem = document.createElement('div');
-                    receiptItem.className = "bg-gray-100 p-4 rounded-xl shadow flex justify-between items-center";
-                    receiptItem.innerHTML = `
-                        <div>
-                            <p class="font-bold text-gray-800">${data.printName}</p>
-                            <p class="text-sm text-gray-600">Customer: ${data.customerName || 'N/A'}</p>
-                            <p class="text-sm text-gray-600">Date: ${data.purchaseDate || 'N/A'}</p>
-                        </div>
-                        <div class="text-right">
-                            <p class="font-bold text-lg text-green-600">${data.finalPrice}</p>
-                            <button class="delete-btn text-red-500 hover:text-red-700 transition-colors text-sm" data-id="${doc.id}">Delete</button>
-                        </div>
-                    `;
-                    receiptsList.appendChild(receiptItem);
-
-                    receiptItem.querySelector('.delete-btn').addEventListener('click', async (e) => {
-                        const docId = e.target.dataset.id;
-                        try {
-                            const docRef = firestore.doc(db, `${collectionPath}/${docId}`);
-                            await firestore.deleteDoc(docRef);
-                        } catch (e) {
-                            console.error("Error removing document: ", e);
-                            showMessage("Deletion Error", "Failed to delete receipt. Please try again.");
-                        }
-                    });
-                });
-            }, (error) => {
-                console.error("Error fetching documents: ", error);
-                loadingHistory.classList.add('hidden');
-                noHistory.classList.add('hidden');
-                showMessage("Connection Error", "Failed to load history. Please check your network connection.");
-            });
-        }
-
-        // --- View Switching Logic ---
-        const calculatorView = document.getElementById('calculator-view');
-        const historyView = document.getElementById('history-view');
-        const viewHistoryBtn = document.getElementById('view-history-btn');
-        const backToCalculatorBtn = document.getElementById('back-to-calculator-btn');
-
-        viewHistoryBtn.addEventListener('click', () => {
-            calculatorView.classList.add('hidden');
-            historyView.classList.remove('hidden');
-            if (authReady) {
-                loadReceiptHistory();
-            }
-        });
-        
-        backToCalculatorBtn.addEventListener('click', () => {
-            historyView.classList.add('hidden');
-            calculatorView.classList.remove('hidden');
-        });
-
-        // --- Existing Calculator Logic ---
-        // Currency conversion rates relative to USD (base currency)
         const currencyRates = {
             'USD': 1.00,
             'EUR': 0.84672,
@@ -445,7 +260,6 @@
             'PHP': 57.0615
         };
         
-        // Currency symbols for display
         const currencySymbols = {
             'USD': '$',
             'EUR': '€',
@@ -458,8 +272,6 @@
 
         const inputs = document.querySelectorAll('input[type="number"]');
         const currencySelect = document.getElementById('currency');
-        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-
         const materialCostDisplay = document.getElementById('material-cost-display');
         const electricityCostDisplay = document.getElementById('electricity-cost-display');
         const laborCostDisplay = document.getElementById('labor-cost-display');
@@ -467,6 +279,10 @@
         const totalCostDisplay = document.getElementById('total-cost-display');
         const markupPriceDisplay = document.getElementById('markup-price-display');
         const finalPriceDisplay = document.getElementById('final-price-display');
+        
+        const calculatorView = document.getElementById('calculator-view');
+        const historyView = document.getElementById('history-view');
+        const historyList = document.getElementById('history-list');
 
         function calculateCost() {
             const selectedCurrency = currencySelect.value;
@@ -508,11 +324,127 @@
             finalPriceDisplay.textContent = `${symbol} ${(finalPriceUSD * rate).toFixed(2)}`;
         }
         
+        function getHistory() {
+            const history = localStorage.getItem('printHistory');
+            return history ? JSON.parse(history) : [];
+        }
+
+        function saveHistory() {
+            const printName = document.getElementById('print-name').value;
+            const customerName = document.getElementById('customer-name').value;
+            const purchaseDate = document.getElementById('purchase-date').value;
+
+            if (!printName) {
+                showMessage("Save Error", "Please enter a Print Name before saving.");
+                return;
+            }
+
+            const history = getHistory();
+            const newEntry = {
+                printName: printName,
+                customerName: customerName,
+                purchaseDate: purchaseDate,
+                materialCost: materialCostDisplay.textContent,
+                electricityCost: electricityCostDisplay.textContent,
+                laborCost: laborCostDisplay.textContent,
+                postProcessingCost: postProcessingCostDisplay.textContent,
+                totalCost: totalCostDisplay.textContent,
+                markupPrice: markupPriceDisplay.textContent,
+                finalPrice: finalPriceDisplay.textContent,
+                timestamp: new Date().toISOString()
+            };
+
+            history.push(newEntry);
+            localStorage.setItem('printHistory', JSON.stringify(history));
+            showMessage("Success!", "Calculation saved to history.");
+        }
+
+        function renderHistory() {
+            const history = getHistory();
+            historyList.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyList.innerHTML = '<p class="text-center text-gray-500">No saved history yet.</p>';
+                return;
+            }
+
+            history.forEach((item, index) => {
+                const historyItem = document.createElement('div');
+                historyItem.classList.add('bg-gray-50', 'rounded-2xl', 'p-4', 'shadow-md', 'flex', 'flex-col', 'sm:flex-row', 'justify-between', 'items-center', 'space-y-2', 'sm:space-y-0', 'sm:space-x-4');
+                historyItem.innerHTML = `
+                    <div class="flex-1 w-full text-center sm:text-left">
+                        <div class="font-bold text-lg text-gray-800">${item.printName}</div>
+                        <div class="text-sm text-gray-600">Customer: ${item.customerName || 'N/A'}</div>
+                        <div class="text-sm text-gray-600">Date: ${item.purchaseDate || 'N/A'}</div>
+                    </div>
+                    <div class="text-lg font-bold text-green-500 w-full text-center sm:w-auto sm:text-right">
+                        ${item.finalPrice}
+                    </div>
+                    <div class="flex space-x-2 mt-2 sm:mt-0">
+                        <button class="view-item-btn bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 transition-colors" data-index="${index}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.5 7a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM10 14a1 1 0 100-2 1 1 0 000 2zM12.5 7a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <button class="delete-item-btn bg-red-500 text-white rounded-full p-2 hover:bg-red-600 transition-colors" data-index="${index}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 112 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                historyList.appendChild(historyItem);
+            });
+
+            // Add event listeners for the new buttons
+            historyList.querySelectorAll('.view-item-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const index = e.currentTarget.dataset.index;
+                    const item = getHistory()[index];
+                    showMessage("Saved Print Details", 
+                        `Print Name: ${item.printName}\n` +
+                        `Customer Name: ${item.customerName || 'N/A'}\n` +
+                        `Date: ${item.purchaseDate || 'N/A'}\n\n` +
+                        `Material Cost: ${item.materialCost}\n` +
+                        `Electricity Cost: ${item.electricityCost}\n` +
+                        `Labor Cost: ${item.laborCost}\n` +
+                        `Post-Processing Cost: ${item.postProcessingCost}\n\n` +
+                        `Total Cost: ${item.totalCost}\n` +
+                        `Markup Price: ${item.markupPrice}\n` +
+                        `Final Price: ${item.finalPrice}`);
+                });
+            });
+
+            historyList.querySelectorAll('.delete-item-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const index = e.currentTarget.dataset.index;
+                    const history = getHistory();
+                    history.splice(index, 1);
+                    localStorage.setItem('printHistory', JSON.stringify(history));
+                    renderHistory(); // Re-render the list
+                    showMessage("Deleted", "Item has been removed from history.");
+                });
+            });
+        }
+        
+        function showHistoryView() {
+            calculatorView.classList.add('hidden');
+            historyView.classList.remove('hidden');
+            renderHistory();
+        }
+
+        function showCalculatorView() {
+            historyView.classList.add('hidden');
+            calculatorView.classList.remove('hidden');
+        }
+
         currencySelect.addEventListener('change', calculateCost);
+        document.getElementById('save-history-btn').addEventListener('click', saveHistory);
+        document.getElementById('view-history-btn').addEventListener('click', showHistoryView);
+        document.getElementById('back-btn').addEventListener('click', showCalculatorView);
         
         window.onload = function() {
             calculateCost();
-            authenticateUser();
         };
 
         const includeElectricityCheckbox = document.getElementById('include-electricity');
@@ -612,9 +544,6 @@
             
             doc.save(`3D_Print_Receipt_${printName.replace(/\s/g, '_')}.pdf`);
         });
-
-        document.getElementById('save-receipt-btn').addEventListener('click', saveReceipt);
     </script>
-
 </body>
 </html>
