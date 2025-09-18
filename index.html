@@ -10,13 +10,13 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // Expose Firebase and Firestore to the global scope for use in the main script
-        window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
-        window.firestore = { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, setLogLevel };
+        window.firebase = { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken };
+        window.firestore = { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel };
     </script>
     <style>
         body {
@@ -251,11 +251,6 @@
     </div>
 
     <script type="module">
-        // Firebase global variables
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
         let db, auth, userId;
         let authReady = false;
 
@@ -272,35 +267,34 @@
         });
 
         // Initialize Firebase
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const app = firebase.initializeApp(firebaseConfig);
         db = firestore.getFirestore(app);
         auth = firebase.getAuth(app);
         firestore.setLogLevel('debug'); // For debugging Firestore operations
-
+        
         // Authenticate user
         async function authenticateUser() {
             try {
-                if (initialAuthToken) {
-                    await firebase.signInWithCustomToken(auth, initialAuthToken);
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await firebase.signInWithCustomToken(auth, __initial_auth_token);
                 } else {
                     await firebase.signInAnonymously(auth);
                 }
             } catch (error) {
-                showMessage("Authentication Error", "Could not authenticate with Firebase. Please try reloading the page.");
+                showMessage("Authentication Error", "Could not authenticate with Firebase. Please check the console for details.");
                 console.error("Firebase authentication error:", error);
             }
         }
         
         // Listen for auth state changes and set up Firestore listeners
-        firebase.onAuthStateChanged(auth, async (user) => {
+        firebase.onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
                 document.getElementById('user-id').textContent = userId;
                 authReady = true;
-                if (document.getElementById('history-view').classList.contains('hidden')) {
-                     // Initial state, no need to load history yet
-                } else {
-                    loadReceiptHistory();
+                if (!document.getElementById('history-view').classList.contains('hidden')) {
+                     loadReceiptHistory();
                 }
             } else {
                 userId = null;
@@ -347,8 +341,7 @@
             saveBtn.disabled = true;
 
             try {
-                // Determine the correct collection path based on security rules.
-                const collectionPath = `/artifacts/${appId}/users/${userId}/receipts`;
+                const collectionPath = `/artifacts/${typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}/public/data/receipts`;
                 await firestore.addDoc(firestore.collection(db, collectionPath), receiptData);
                 showMessage("Success", "Receipt saved to history!");
             } catch (e) {
@@ -369,15 +362,13 @@
             const loadingHistory = document.getElementById('loading-history');
             const noHistory = document.getElementById('no-history');
 
-            // Hide loading message and show a placeholder if no items are present
             receiptsList.innerHTML = '';
             loadingHistory.classList.remove('hidden');
             noHistory.classList.add('hidden');
 
-            const collectionPath = `/artifacts/${appId}/users/${userId}/receipts`;
+            const collectionPath = `/artifacts/${typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}/public/data/receipts`;
             const q = firestore.query(firestore.collection(db, collectionPath));
             
-            // Listen for real-time updates
             firestore.onSnapshot(q, (snapshot) => {
                 loadingHistory.classList.add('hidden');
                 if (snapshot.empty) {
@@ -386,7 +377,7 @@
                 }
                 noHistory.classList.add('hidden');
                 
-                receiptsList.innerHTML = ''; // Clear previous list
+                receiptsList.innerHTML = ''; 
                 snapshot.forEach((doc) => {
                     const data = doc.data();
                     const receiptItem = document.createElement('div');
@@ -404,7 +395,6 @@
                     `;
                     receiptsList.appendChild(receiptItem);
 
-                    // Add click listener to the delete button
                     receiptItem.querySelector('.delete-btn').addEventListener('click', async (e) => {
                         const docId = e.target.dataset.id;
                         try {
@@ -500,15 +490,10 @@
             const totalLaborTime = laborTimeHours + (laborTimeMinutes / 60);
             const totalPostProcessingTime = postProcessingHours + (postProcessingMinutes / 60);
             
-            const filamentPriceUSD = filamentPrice / rate;
-            const electricityCostUSD = electricityCost / rate;
-            const laborRateUSD = laborRate / rate;
-            const postProcessingRateUSD = postProcessingRate / rate;
-
-            const materialCostUSD = (filamentWeight / 1000) * filamentPriceUSD;
-            const electricityCostCalcUSD = document.getElementById('include-electricity').checked ? (totalPrintTime * 0.05) * electricityCostUSD : 0;
-            const laborCostCalcUSD = document.getElementById('include-labor').checked ? totalLaborTime * laborRateUSD : 0;
-            const postProcessingCostCalcUSD = document.getElementById('include-post-processing').checked ? totalPostProcessingTime * postProcessingRateUSD : 0;
+            const materialCostUSD = (filamentWeight / 1000) * filamentPrice;
+            const electricityCostCalcUSD = document.getElementById('include-electricity').checked ? (totalPrintTime * 0.05) * electricityCost / rate : 0;
+            const laborCostCalcUSD = document.getElementById('include-labor').checked ? totalLaborTime * laborRate / rate : 0;
+            const postProcessingCostCalcUSD = document.getElementById('include-post-processing').checked ? totalPostProcessingTime * postProcessingRate / rate : 0;
             
             const totalCostUSD = materialCostUSD + electricityCostCalcUSD + laborCostCalcUSD + postProcessingCostCalcUSD;
             const markupPriceUSD = totalCostUSD * (markup / 100);
@@ -628,7 +613,6 @@
             doc.save(`3D_Print_Receipt_${printName.replace(/\s/g, '_')}.pdf`);
         });
 
-        // Event listener for the new "Save to History" button
         document.getElementById('save-receipt-btn').addEventListener('click', saveReceipt);
     </script>
 
