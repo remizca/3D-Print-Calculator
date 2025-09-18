@@ -1,30 +1,9 @@
+
 import { GcodeInfo } from "../types";
 
-// --- Regex Definitions ---
-
-const weightRegexes = [
-    // Catches various formats like "filament used[g]: 10.5g", "total filament weight = 10.5", "filament_used_g = 10.5"
-    /(?:total |used )?filament (?:used|weight|cost)\s*(?:\(g\)|\[g\])?\s*[:=]\s*(\d+\.?\d*)\s*g?/i,
-    /filament_used_g\s*=\s*(\d+\.?\d*)/i,
-];
-
-const lengthRegexes = [
-    // Catches "filament used = 1234.5mm" or "Filament used: 12.345m", "filament_used_m = 12.345"
-    /filament used\s*[:=]\s*(\d+\.?\d*)\s*(m|mm)/i,
-    /filament_used_m\s*=\s*(\d+\.?\d*)/i,
-];
-
-// Time Regexes are defined separately to allow for specific logic for each one.
-const timeRegexBambu = /total estimated time:\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i;
-const timeRegexDHMS1 = /(?:build|print|estimated printing) time(?:.+)[:=]\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i;
-const timeRegexDHMS2 = /(?:build|print|estimated printing) time\s*[:=]?\s*(?:(\d+)d)?\s*(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?/i;
-const timeRegexHHMMSS = /estimated print time\s*:\s*(\d{2}):(\d{2}):(\d{2})/i;
-const timeRegexCura = /^;TIME:(\d+)/i;
-
-// The order determines priority. Bambu's specific regex is first for accuracy.
-const allTimeRegexes = [timeRegexBambu, timeRegexDHMS1, timeRegexDHMS2, timeRegexHHMMSS, timeRegexCura];
-
-
+// This function attempts a fast, local parse of G-code comments.
+// It's designed to be more robust and catch more variations.
+// If it fails to find key information, the app will fall back to the AI parser.
 export const parseGcode = (gcode: string): GcodeInfo => {
     const lines = gcode.split('\n');
 
@@ -34,64 +13,82 @@ export const parseGcode = (gcode: string): GcodeInfo => {
         filamentLengthMm: null,
     };
     
+    // --- Enhanced Regular Expressions ---
+    // Catches various formats like "filament used[g]: 10.5g", "total filament weight = 10.5", "filament_used_g = 10.5"
+    const weightRegexes = [
+        /(?:total |used )?filament (?:used|weight|cost)\s*(?:\(g\)|\[g\])?\s*[:=]\s*(\d+\.?\d*)\s*g?/i,
+        /filament_used_g\s*=\s*(\d+\.?\d*)/i,
+    ];
+    
+    // Catches "print time = 1d 2h 3m 4s", "Build time: 2h 3m", "TIME:3600", "estimated print time: 01:30:00"
+    // The first regex is specifically for Bambu Studio's "total estimated time" for higher accuracy.
+    const timeRegexes = [
+        /total estimated time:\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i, // Bambu Studio specific
+        /(?:build|print|estimated printing) time(?:.+)[:=]\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i, // d h m s format with junk in the middle
+        /(?:build|print|estimated printing) time\s*[:=]?\s*(?:(\d+)d)?\s*(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?/i, // Simpler d h m s format
+        /estimated print time\s*:\s*(\d{2}):(\d{2}):(\d{2})/i, // HH:MM:SS format
+        /^;TIME:(\d+)/i // Cura format (seconds)
+    ];
+
+    // Catches "filament used = 1234.5mm" or "Filament used: 12.345m", "filament_used_m = 12.345"
+    const lengthRegexes = [
+        /filament used\s*[:=]\s*(\d+\.?\d*)\s*(m|mm)/i,
+        /filament_used_m\s*=\s*(\d+\.?\d*)/i,
+    ];
+
     for (const line of lines) {
         if (!line.startsWith(';')) continue; // Only parse comments
         
-        // --- Search for WEIGHT if not found yet ---
+        // --- Search for values, stopping when found for that property ---
         if (result.filamentWeightG === null) {
             for (const regex of weightRegexes) {
                 const match = line.match(regex);
                 if (match && match[1]) {
                     result.filamentWeightG = parseFloat(match[1]);
-                    console.log(`[Gcode Parser] Found weight: ${result.filamentWeightG}g on line: "${line.trim()}"`);
+                    console.log(`[Gcode Parser] Found weight: ${result.filamentWeightG}g with regex "${regex.source}" on line: "${line.trim()}"`);
                     break;
                 }
             }
         }
         
-        // --- Search for TIME if not found yet ---
         if (result.printTimeSeconds === null) {
-            for (const regex of allTimeRegexes) {
+            for (const regex of timeRegexes) {
                 const match = line.match(regex);
                 if (!match) continue;
 
-                let seconds = 0;
-                let found = false;
-
-                // Apply specific parsing logic based on which regex matched
-                if (regex === timeRegexBambu) {
+                if (regex.source.includes(':')) { // HH:MM:SS format
                     const h = parseInt(match[1] || '0', 10);
                     const m = parseInt(match[2] || '0', 10);
                     const s = parseInt(match[3] || '0', 10);
-                    seconds = (h * 3600) + (m * 60) + s;
-                    found = seconds > 0;
-                } else if (regex === timeRegexDHMS1 || regex === timeRegexDHMS2) {
-                    const d = parseInt(match[1] || '0', 10);
-                    const h = parseInt(match[2] || '0', 10);
-                    const m = parseInt(match[3] || '0', 10);
-                    const s = parseInt(match[4] || '0', 10);
-                    seconds = (d * 86400) + (h * 3600) + (m * 60) + s;
-                    found = seconds > 0;
-                } else if (regex === timeRegexHHMMSS) {
-                    const h = parseInt(match[1] || '0', 10);
-                    const m = parseInt(match[2] || '0', 10);
-                    const s = parseInt(match[3] || '0', 10);
-                    seconds = (h * 3600) + (m * 60) + s;
-                    found = seconds > 0;
-                } else if (regex === timeRegexCura) {
-                    seconds = parseInt(match[1], 10);
-                    found = seconds > 0;
-                }
+                    result.printTimeSeconds = (h * 3600) + (m * 60) + s;
+                    console.log(`[Gcode Parser] Found time (HH:MM:SS): ${result.printTimeSeconds}s on line: "${line.trim()}"`);
+                    break;
+                } else if (regex.source.startsWith('^;TIME')) { // Cura format
+                     result.printTimeSeconds = parseInt(match[1], 10);
+                     console.log(`[Gcode Parser] Found Cura time: ${result.printTimeSeconds}s on line: "${line.trim()}"`);
+                     break;
+                } else { // DHMS format
+                    let d = 0, h = 0, m = 0, s = 0;
+                     if (regex.source.includes('total estimated time')) { // Bambu Studio format
+                         h = parseInt(match[1] || '0', 10);
+                         m = parseInt(match[2] || '0', 10);
+                         s = parseInt(match[3] || '0', 10);
+                     } else { // Generic DHMS
+                         d = parseInt(match[1] || '0', 10);
+                         h = parseInt(match[2] || '0', 10);
+                         m = parseInt(match[3] || '0', 10);
+                         s = parseInt(match[4] || '0', 10);
+                     }
 
-                if (found) {
-                    result.printTimeSeconds = seconds;
-                    console.log(`[Gcode Parser] Found time: ${result.printTimeSeconds}s on line: "${line.trim()}"`);
-                    break; // Exit the inner regex loop once a match is found
+                    if (d > 0 || h > 0 || m > 0 || s > 0) {
+                        result.printTimeSeconds = (d * 86400) + (h * 3600) + (m * 60) + s;
+                        console.log(`[Gcode Parser] Found time (dhms): ${result.printTimeSeconds}s on line: "${line.trim()}"`);
+                        break;
+                    }
                 }
             }
         }
 
-        // --- Search for LENGTH if not found yet ---
         if (result.filamentLengthMm === null) {
             for (const regex of lengthRegexes) {
                 const match = line.match(regex);
