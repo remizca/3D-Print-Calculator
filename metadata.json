@@ -1,0 +1,5 @@
+{
+  "name": "3D Printing Cost Calculator",
+  "description": "A comprehensive tool to calculate the cost of 3D prints, including material, electricity, labor, and markup. Users can save their calculations, view history, and generate PDF receipts.",
+  "requestFramePermissions": []
+}
