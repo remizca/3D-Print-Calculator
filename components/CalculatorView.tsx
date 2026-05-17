@@ -470,7 +470,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({
                 <InputField
                   id="filament-weight"
                   label="Weight (g)"
-                  description={data.includeMultiColor ? 'Ignored while multi-color mode is enabled.' : 'Total material consumed by the print.'}
+                  description={data.includeMultiColor ? 'Ignored while multi-color mode is enabled.' : 'Total material consumed. Auto-syncs with Length.'}
                   type="number"
                   value={data.filamentWeight}
                   min={0}
@@ -480,7 +480,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({
                 <InputField
                   id="filament-length"
                   label="Length (m)"
-                  description="Auto-converted from weight using material density."
+                  description="Auto-synced with weight using material density."
                   type="number"
                   value={data.filamentLengthM}
                   min={0}
@@ -488,18 +488,6 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({
                   disabled={data.includeMultiColor}
                   onChange={(e) => onDataChange('filamentLengthM', e.target.valueAsNumber || 0)}
                 />
-                {costs.computedWeightG !== null && !data.includeMultiColor && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
-                    <div className="font-semibold">Computed weight: {costs.computedWeightG.toFixed(2)} g</div>
-                    <div className="text-emerald-700">From {data.filamentLengthM} m of {data.materialType} at {data.filamentDiameter} mm</div>
-                  </div>
-                )}
-                {costs.computedLengthM !== null && !data.includeMultiColor && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
-                    <div className="font-semibold">Computed length: {costs.computedLengthM.toFixed(2)} m</div>
-                    <div className="text-emerald-700">From {data.filamentWeight} g of {data.materialType} at {data.filamentDiameter} mm</div>
-                  </div>
-                )}
                 <InputField
                   id="filament-price"
                   label="Filament Price"
@@ -735,7 +723,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({
                       <div className="font-semibold">Calculated automatically</div>
                       <div className="mt-1">Per-change overhead: {switchTimePerChangeLabel}</div>
                       <div>Total filament-change overhead: {extraSwitchTimeLabel}</div>
-                      {data.includeLabor && prepTimeSeconds > 0 && (
+                      {data.includeLabor && costs.prepTimeSeconds > 0 && (
                         <div className="text-emerald-700">
                           Prep time billed under Labor: {currency.symbol} {costs.prepLaborCost.toFixed(2)}
                         </div>

@@ -180,10 +180,39 @@ const App: React.FC = () => {
         postProcessingRate: (prev.postProcessingRate / oldRate) * newRate,
         depreciationRate: (prev.depreciationRate / oldRate) * newRate,
       }));
+    } else if (key === 'filamentWeight') {
+      const newWeight = value as number;
+      const density = FILAMENT_DENSITIES[data.materialType] || FILAMENT_DENSITIES['PLA'];
+      const radiusCm = (data.filamentDiameter / 2) / 10;
+      const crossSectionCm2 = Math.PI * radiusCm * radiusCm;
+      const newLength = newWeight > 0 ? ((newWeight / density) / crossSectionCm2) / 100 : 0;
+      setData(prev => ({ ...prev, filamentWeight: newWeight, filamentLengthM: parseFloat(newLength.toFixed(2)) }));
+    } else if (key === 'filamentLengthM') {
+      const newLength = value as number;
+      const density = FILAMENT_DENSITIES[data.materialType] || FILAMENT_DENSITIES['PLA'];
+      const radiusCm = (data.filamentDiameter / 2) / 10;
+      const crossSectionCm2 = Math.PI * radiusCm * radiusCm;
+      const newWeight = newLength > 0 ? crossSectionCm2 * (newLength * 100) * density : 0;
+      setData(prev => ({ ...prev, filamentLengthM: newLength, filamentWeight: parseFloat(newWeight.toFixed(2)) }));
+    } else if (key === 'filamentDiameter' || key === 'materialType') {
+      setData(prev => {
+        const updated = { ...prev, [key]: value };
+        const density = FILAMENT_DENSITIES[updated.materialType] || FILAMENT_DENSITIES['PLA'];
+        const radiusCm = (updated.filamentDiameter / 2) / 10;
+        const crossSectionCm2 = Math.PI * radiusCm * radiusCm;
+        if (updated.filamentWeight > 0) {
+          const newLength = ((updated.filamentWeight / density) / crossSectionCm2) / 100;
+          updated.filamentLengthM = parseFloat(newLength.toFixed(2));
+        } else if (updated.filamentLengthM > 0) {
+          const newWeight = crossSectionCm2 * (updated.filamentLengthM * 100) * density;
+          updated.filamentWeight = parseFloat(newWeight.toFixed(2));
+        }
+        return updated;
+      });
     } else {
       setData(prev => ({ ...prev, [key]: value }));
     }
-  }, [data.currency, currencies]);
+  }, [data.currency, data.materialType, data.filamentDiameter, currencies]);
 
   const handleFilamentProfileChange = useCallback((id: string, key: string, value: string | number) => {
     setData(prev => ({
