@@ -439,7 +439,7 @@ const CalculatorView: React.FC<CalculatorViewProps> = ({
                 </div>
               )}
               <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-4">
-                <div className={className}>
+                <div>
                   <label htmlFor="material-type" className="block text-sm font-semibold text-slate-700">
                     Material Type
                   </label>
